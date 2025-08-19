@@ -1,7 +1,9 @@
 import os
 import openai
+from dotenv import load_dotenv, find_dotenv
 from typing import List, Any, Dict
 
+load_dotenv(find_dotenv())
 
 class Model:
     """simple LLM wrapper"""
