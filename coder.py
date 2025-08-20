@@ -50,23 +50,23 @@ class Coder:
             repo_info = self.context_manager.scan_repository()
             files_to_analyze = repo_info["files"][:10]  # Limit to first 10 files to avoid overwhelming
         
-        context = self.context_manager.build_optimized_context(
-            files_to_analyze, message, mentioned_symbols
-        )
+        context = self.context_manager.build_multilang_context(files_to_analyze, message)
 
         messages = [
             {
                 "role": "system",
-                "content": """You are an expert coding assistant. Use the repository 
-                              context to understand the codebase structure and 
-                              provide accurate help. You have access to the complete codebase."""
+                "content": """You are an expert coding assistant with deep 
+                              understanding of multiple programming languages.   
+                              Use the repository context to understand code structure,
+                              dependencies, and relationships across different 
+                              languages."""
             }
         ]
 
         if context.strip():
             messages.append({
                 "role":"system",
-                "content": f"Here is the current codebase context:\n\n{context}"
+                "content": f"Multi-language Repository Context:\n{context}"  
             })
 
         messages.append({
