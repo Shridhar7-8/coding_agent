@@ -20,15 +20,24 @@ async def main(argv=None):
     while(i<len(argv)):
         args = argv[i]
         if args == "--model":
-            model = argv[i+1]
-            i += 2
-        elif args == "--message" or "-m":
-            message = argv[i+1]
-            i += 2
+            if i+1 < len(argv):
+                model = argv[i+1]
+                i += 2
+            else:
+                print("Error: --model requires a value")
+                return
+        elif args == "--message" or args == "-m":
+            if i+1 < len(argv):
+                message = argv[i+1]
+                i += 2
+            else:
+                print("Error: --message requires a value")
+                return
         elif not args.startswith("--"):
             files.append(args)
             i += 1
         else:
+            print(f"Unknown argument: {args}")
             i += 1
     
     llm_model = Model(model)
