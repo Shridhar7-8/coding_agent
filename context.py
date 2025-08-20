@@ -181,7 +181,7 @@ class ContextManager:
         lower_bound = 0
         upper_bound = len(sorted_symbols)
         best_context = ""
-        best_token = 0
+        best_tokens = 0
 
         while lower_bound <= upper_bound:
             middle = (lower_bound+upper_bound) // 2
@@ -191,7 +191,7 @@ class ContextManager:
 
             if token_count <= max_tokens:
                 best_context = context
-                best_token = token_count
+                best_tokens = token_count
                 lower_bound = middle + 1
             else:
                 upper_bound = middle - 1
