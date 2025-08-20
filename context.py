@@ -1,8 +1,12 @@
 import os
 import ast
+import warnings
 from pathlib import Path
 from collections import defaultdict, Counter
 from typing import List, Dict, Set, Any
+warnings.simplefilter("ignore", category=FutureWarning)
+from grep_ast.tsl import get_language, get_parser
+from grep_ast import filename_to_lang
 
 
 class ContextManager:
@@ -39,7 +43,7 @@ class ContextManager:
         repo_info["total_files"] = len(repo_info["files"])
         return repo_info
     
-    def get_file_symbols(self, file_path: str) -> Dict[str, List[Dict]]:
+    def _get_file_symbols_ast(self, file_path: str) -> Dict[str, List[Dict]]:
         """ Extracts functions, classes, and variables from python files """
 
         if file_path in self.tags_cache:
@@ -81,13 +85,256 @@ class ContextManager:
         except Exception as e:
             print(f"Error parsing {file_path}: {e}")
             return symbols
+    
+
+
+    def _get_file_symbols_ast_treesitter(self, file_path: str) -> Dict[str, List[Dict]]:  
+        """Extract symbols using tree-sitter for multi-language support"""  
+        
+        if file_path in self.tags_cache:  
+            return self.tags_cache[file_path]  
+              
+        symbols = {"functions": [], "classes": [], "variables": []}  
+          
+        try:  
+            # Determine language from filename  
+            lang = filename_to_lang(file_path)  
+            if not lang:  
+                return symbols  
+                  
+            # Get tree-sitter parser for the language  
+            parser = get_parser(lang)  
+            if not parser:  
+                return symbols  
+                  
+            # Parse the file content  
+            content = self.get_file_content(file_path)  
+            tree = parser.parse(bytes(content, "utf-8"))  
+              
+            # Extract symbols using tree-sitter queries  
+            symbols = self._extract_symbols_from_tree(tree, content, lang)  
+              
+            self.tags_cache[file_path] = symbols  
+            return symbols  
+              
+        except Exception as e:  
+            print(f"Error parsing {file_path} with tree-sitter: {e}")  
+            # Fallback to AST for Python files  
+            if file_path.endswith('.py'):  
+                return self._get_file_symbols_ast(file_path)  
+            return symbols
+
+
+
+
+    def _extract_symbols_from_tree(self, tree, content: str, lang: str) -> Dict[str, List[Dict]]:  
+        """Extract symbols from tree-sitter parse tree"""  
+        
+        symbols = {"functions": [], "classes": [], "variables": []}  
+        content_lines = content.split('\n')  
+          
+        def traverse_node(node):  
+            """Recursively traverse tree nodes to find definitions"""  
+            node_type = node.type  
+              
+            # Function definitions  
+            if node_type in ['function_definition', 'method_definition', 'function_declaration']:  
+                name_node = self._find_name_node(node)  
+                if name_node:  
+                    symbols["functions"].append({  
+                        "name": name_node.text.decode('utf-8'),  
+                        "line": node.start_point[0] + 1,  
+                        "signature": self._get_node_signature(node, content_lines),  
+                        "kind": "function"  
+                    })  
+              
+            # Class definitions  
+            elif node_type in ['class_definition', 'class_declaration', 'interface_declaration']:  
+                name_node = self._find_name_node(node)  
+                if name_node:  
+                    methods = self._extract_class_methods(node)  
+                    symbols["classes"].append({  
+                        "name": name_node.text.decode('utf-8'),  
+                        "line": node.start_point[0] + 1,  
+                        "methods": methods,  
+                        "kind": "class"  
+                    })  
+              
+            # Variable definitions  
+            elif node_type in ['variable_declaration', 'assignment', 'const_declaration']:  
+                name_node = self._find_name_node(node)  
+                if name_node:  
+                    symbols["variables"].append({  
+                        "name": name_node.text.decode('utf-8'),  
+                        "line": node.start_point[0] + 1,  
+                        "kind": "variable"  
+                    })  
+              
+            # Recursively process child nodes  
+            for child in node.children:  
+                traverse_node(child)  
+          
+        traverse_node(tree.root_node)  
+        return symbols  
+      
+    
+    def _find_name_node(self, node):  
+        """Find the name node within a definition node"""  
+        
+        for child in node.children:  
+            if child.type in ['identifier', 'name']:  
+                return child  
+        return None  
+      
+    
+    def _get_node_signature(self, node, content_lines: List[str]) -> str:  
+        """Extract function signature from node"""  
+        
+        start_line = node.start_point[0]  
+        end_line = min(node.end_point[0] + 1, len(content_lines))  
+          
+        # Get the first few lines of the definition  
+        signature_lines = content_lines[start_line:min(start_line + 3, end_line)]  
+        return ' '.join(line.strip() for line in signature_lines if line.strip())  
+      
+    
+    def _extract_class_methods(self, class_node) -> List[str]:  
+        """Extract method names from a class node"""  
+        
+        methods = []  
+        for child in class_node.children:  
+            if child.type in ['function_definition', 'method_definition']:  
+                name_node = self._find_name_node(child)  
+                if name_node:  
+                    methods.append(name_node.text.decode('utf-8'))  
+        return methods
+
+    
+    def analyze_dependencies(self, files: List[str]) -> Dict[str, Set[str]]:  
+        """Analyze dependencies between files and symbols"""  
+        dependencies = defaultdict(set)  
+        all_symbols = {}  
+          
+        # First pass: collect all symbols  
+        for file_path in files:  
+            symbols = self._get_file_symbols_ast_treesitter(file_path)  
+            for category in symbols:  
+                for symbol in symbols[category]:  
+                    symbol_key = f"{file_path}:{symbol['name']}"  
+                    all_symbols[symbol['name']] = symbol_key  
+          
+        # Second pass: find references  
+        for file_path in files:  
+            content = self.get_file_content(file_path)  
+            file_dependencies = set()  
+              
+            # Look for symbol references in content  
+            for symbol_name, symbol_key in all_symbols.items():  
+                if symbol_name in content and not symbol_key.startswith(file_path):  
+                    file_dependencies.add(symbol_key)  
+              
+            dependencies[file_path] = file_dependencies  
+          
+        return dict(dependencies)  
+      
+    def build_dependency_graph(self, files: List[str]) -> Dict[str, float]:  
+        """Build PageRank-style dependency graph"""  
+        dependencies = self.analyze_dependencies(files)  
+        symbol_scores = defaultdict(float)  
+          
+        # Calculate importance based on references  
+        for file_path, deps in dependencies.items():  
+            for dep in deps:  
+                symbol_scores[dep] += 1.0  
+          
+        # Normalize scores  
+        max_score = max(symbol_scores.values()) if symbol_scores else 1.0  
+        for symbol in symbol_scores:  
+            symbol_scores[symbol] /= max_score  
+          
+        return dict(symbol_scores)
+    
+
+
+    def build_multilang_context(self, files: List[str], query: str = "") -> str:  
+        """Build context with multi-language support"""  
+        
+        context_parts = []  
+        language_stats = defaultdict(int)  
+          
+        # Analyze repository languages  
+        repo_info = self.scan_repository()  
+        for lang in repo_info["languages"]:  
+            language_stats[lang] = sum(1 for f in files if f.endswith(lang))  
+          
+        # Repository overview with language breakdown  
+        overview = f"Repository: {len(files)} files\n"  
+        overview += f"Languages: {dict(language_stats)}\n\n"  
+        context_parts.append(overview)  
+          
+        # Build dependency graph  
+        dep_scores = self.build_dependency_graph(files)  
+          
+        # Process files by importance  
+        file_importance = defaultdict(float)  
+        for file_path in files:  
+            symbols = self._get_file_symbols_ast_treesitter(file_path)  
+            for category in symbols:  
+                for symbol in symbols[category]:  
+                    symbol_key = f"{file_path}:{symbol['name']}"  
+                    file_importance[file_path] += dep_scores.get(symbol_key, 0.1)  
+          
+        # Sort files by importance  
+        sorted_files = sorted(files, key=lambda f: file_importance[f], reverse=True)  
+          
+        # Add file contexts within token budget  
+        current_tokens = len(overview) // 4  
+        for file_path in sorted_files:  
+            if current_tokens >= self.context_budget:  
+                break  
+                  
+            symbols = self._get_file_symbols_ast_treesitter(file_path)  
+            file_section = self._format_multilang_symbols(file_path, symbols)  
+              
+            section_tokens = len(file_section) // 4  
+            if current_tokens + section_tokens <= self.context_budget:  
+                context_parts.append(file_section)  
+                current_tokens += section_tokens  
+          
+        return "".join(context_parts)  
+      
+    def _format_multilang_symbols(self, file_path: str, symbols: Dict) -> str:  
+        """Format symbols for multiple languages"""  
+        
+        lines = [f"{file_path}:\n"]  
+          
+        # Add classes with methods  
+        for cls in symbols["classes"]:  
+            lines.append(f"  class {cls['name']}:\n")  
+            for method in cls.get("methods", []):  
+                lines.append(f"    {method}\n")  
+          
+        # Add functions  
+        for func in symbols["functions"]:  
+            signature = func.get("signature", func["name"])  
+            lines.append(f"  {signature}\n")  
+          
+        # Add important variables  
+        for var in symbols["variables"][:5]:  # Limit variables  
+            lines.append(f"  {var['name']}\n")  
+          
+        lines.append("\n")  
+        return "".join(lines)
+
 
     def _get_function_signature(self, node: ast.FunctionDef) -> str:
         """ Generate function signature string """
+        
         args = []
         for arg in node.args.args:
             args.append(arg.arg)
         return f"{node.name}({', '.join(args)})"
+    
     
     def calculate_relevance_scores(self, files: List[str], mentioned_symbols: Set[str] = None) -> Dict[str, float]:
         """ calculates relevance scores for file and symbols """
@@ -100,7 +347,7 @@ class ContextManager:
 
         for file_path in files:
             content = self.get_file_content(file_path)
-            symbols = self.get_file_symbols(file_path)
+            symbols = self.__get_file_symbols_ast_ast(file_path)
 
             for func in symbols["functions"]:
                 base_score = 1.0
@@ -217,7 +464,7 @@ class ContextManager:
             file_path, symbol_name = symbol_key.split(":", 1)
 
             if file_path not in included_files:
-                symbols = self.get_file_symbols(file_path)
+                symbols = self._get_file_symbols_ast(file_path)
                 file_section = self._format_file_symbols(file_path, symbols, symbol_name)
                 context_parts.append(file_section)
                 included_files.add(file_path)
@@ -336,12 +583,29 @@ class ContextManager:
         context_parts.append(overview)  
         
         for file_path in files:  
-            symbols = self.get_file_symbols(file_path)  
+            symbols = self._get_file_symbols_ast(file_path)  
             file_section = self._format_file_symbols(file_path, symbols)  
             context_parts.append(file_section)  
         
         return "".join(context_parts)
     
+    
+    
+    def get_file_symbols(self, file_path: str) -> Dict[str, List[Dict]]:  
+        """Main symbol extraction method with fallback strategy"""  
+        
+        # tree-sitter first
+        try:  
+            return self.get_file_symbols_treesitter(file_path)  
+        except Exception as e:  
+            print(f"Tree-sitter failed for {file_path}, falling back to AST: {e}")  
+            
+            # Fallback to AST implementation  
+            if file_path.endswith('.py'):  
+                return self._get_file_symbols_ast(file_path)
+            
+            return {"functions": [], "classes": [], "variables": []}
+
 
     def get_context_for_message(self, files: List[str], message: str) -> str:
         """Choose appropriate context strategy based on situation"""
