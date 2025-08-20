@@ -12,7 +12,7 @@ async def main(argv=None):
         argv = sys.argv[1:]
 
     files = []
-    model = "gpt-4"
+    model = "gpt-4o"
     message = None
 
     i=0
