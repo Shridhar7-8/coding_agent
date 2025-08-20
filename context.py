@@ -246,7 +246,51 @@ class ContextManager:
         lines.append("\n")  
         return "".join(lines)
     
+    
+    
+    def get_cached_context(self, cache_key: str) -> str:  
+        
+        """Get cached context if still valid"""  
+        
+        if cache_key not in self.context_cache:  
+            return None  
+              
+        cached_data = self.context_cache[cache_key]  
 
+        # Check if any files have been modified  
+        for file_path in cached_data["files"]:  
+            try:  
+                current_mtime = os.path.getmtime(self.root_path / file_path)  
+                if file_path not in self.file_mtimes or self.file_mtimes[file_path] != current_mtime:  
+                    # File modified, invalidate cache  
+                    del self.context_cache[cache_key]  
+                    return None  
+            except OSError:  
+                # File doesn't exist anymore  
+                del self.context_cache[cache_key]  
+                return None  
+                  
+        return cached_data["context"]  
+    
+
+      
+    def cache_context(self, cache_key: str, context: str, files: List[str]):  
+        
+        """Cache context with file modification times"""  
+        
+        file_mtimes = {}  
+        for file_path in files:  
+            try:  
+                file_mtimes[file_path] = os.path.getmtime(self.root_path / file_path)  
+            except OSError:  
+                continue  
+                  
+        self.context_cache[cache_key] = {  
+            "context": context,  
+            "files": files,  
+            "mtimes": file_mtimes  
+        }  
+        self.file_mtimes.update(file_mtimes)
         
 
     def build_context(self, files: List[str], query: str = "") -> str:

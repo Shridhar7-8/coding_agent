@@ -1,7 +1,9 @@
 import asyncio
+import re  
 from typing import List
 from context import ContextManager
 from models import Model
+from typing import Set
 
 
 
@@ -40,11 +42,17 @@ class Coder:
     async def _process_message(self, message: str) -> str:
         """Process message and return the model response"""
 
-        context = self.context_manager.build_context(self.files, message)
+        mentioned_symbols = self._extract_mentioned_symbols(message)
+        context = self.context_manager.build_optimized_context(
+            self.files, message, mentioned_symbols
+        )
+
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful coding assistant. Help the user with their code."
+                "content": """You are an expert coding assistant. Use the repository 
+                              context to understand the codebase structure and 
+                              provide accurate help."""
             }
         ]
 
@@ -65,4 +73,22 @@ class Coder:
         self.chat_history.append({"role": "user", "content": message})
 
         return response
+    
+
+    def _extract_mentioned_symbols(self, message: str) -> Set[str]:
+
+        """Extract function/class names mentioned in user message"""  
+     
+        
+        symbols = set()  
+        
+        # Look for function calls: word()  
+        func_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\('  
+        symbols.update(re.findall(func_pattern, message))  
+        
+        # Look for class references: ClassName  
+        class_pattern = r'\b([A-Z][a-zA-Z0-9_]*)\b'  
+        symbols.update(re.findall(class_pattern, message))  
+        
+        return symbols
 
