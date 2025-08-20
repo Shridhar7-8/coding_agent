@@ -43,8 +43,15 @@ class Coder:
         """Process message and return the model response"""
 
         mentioned_symbols = self._extract_mentioned_symbols(message)
+        
+        # If no files specified, scan the current directory for Python files
+        files_to_analyze = self.files
+        if not files_to_analyze:
+            repo_info = self.context_manager.scan_repository()
+            files_to_analyze = repo_info["files"][:10]  # Limit to first 10 files to avoid overwhelming
+        
         context = self.context_manager.build_optimized_context(
-            self.files, message, mentioned_symbols
+            files_to_analyze, message, mentioned_symbols
         )
 
         messages = [
@@ -52,7 +59,7 @@ class Coder:
                 "role": "system",
                 "content": """You are an expert coding assistant. Use the repository 
                               context to understand the codebase structure and 
-                              provide accurate help."""
+                              provide accurate help. You have access to the complete codebase."""
             }
         ]
 
