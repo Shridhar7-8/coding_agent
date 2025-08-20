@@ -14,6 +14,8 @@ class ContextManager:
         self.context_budget = map_tokens
         self.map_mul_no_files = 8
         self.tags_cache = {}
+        self.context_cache = {}  
+        self.file_mtimes = {}   
 
     def scan_repository(self) -> Dict[str, Any]:
         """scans the repository"""
@@ -222,7 +224,27 @@ class ContextManager:
 
         return "".join(context_parts)
     
-
+    
+    
+    def _format_file_symbols(self, file_path: str, symbols: Dict, highlight_symbol: str = None) -> str:  
+        
+        """Format file symbols in tree-like structure"""  
+        lines = [f"{file_path}:\n"]  
+          
+         
+        for cls in symbols["classes"]:  
+            marker = "★ " if cls["name"] == highlight_symbol else "  "  
+            lines.append(f"{marker}class {cls['name']}:\n")  
+            for method in cls["methods"]:  
+                lines.append(f"    def {method}()\n")  
+          
+        
+        for func in symbols["functions"]:  
+            marker = "★ " if func["name"] == highlight_symbol else "  "  
+            lines.append(f"{marker}def {func['signature']}\n")  
+          
+        lines.append("\n")  
+        return "".join(lines)
     
 
         
