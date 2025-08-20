@@ -199,11 +199,31 @@ class ContextManager:
         return best_context or self._build_basic_context(files[:2])
 
 
+    def _build_context_from_symbols(self, symbol_items: List, files: List[str]) -> str:
+        
+        """Build context string from selected symbols"""
+     
+        context_parts = []
+        included_files = set()
 
+        repo_info = self.scan_repository()
+        overview = f"Repository: {len(repo_info['files'])} files\n"
+        overview += f"Languages: {', '.join(repo_info['languages'])}\n\n"
+        context_parts.append(overview)
 
+        for symbol_key, score in symbol_items:
+            file_path, symbol_name = symbol_key.split(":", 1)
 
+            if file_path not in included_files:
+                symbols = self.get_file_symbols(file_path)
+                file_section = self._format_file_symbols(file_path, symbols, symbol_name)
+                context_parts.append(file_section)
+                included_files.add(file_path)
 
+        return "".join(context_parts)
+    
 
+    
 
         
 
