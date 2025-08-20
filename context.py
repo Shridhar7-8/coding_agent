@@ -155,6 +155,58 @@ class ContextManager:
             return f"Error reading file {file_path}: {e}"
         
 
+
+
+    def build_optimized_context(self, files: List[str], query: str = "",
+                              mentioned_symbols: Set[str] = None) -> str:
+        
+        """ Build context with intelligent selection and truncation """
+
+        max_tokens = self.context_budget
+        if not files:
+            max_tokens = min(max_tokens*self.map_mul_no_files, 32000)
+        scores = self.calculate_relevance_scores(files, mentioned_symbols)
+        sorted_symbols = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return self._binary_search_context(sorted_symbols, max_tokens, files)
+    
+
+    def _binary_search_context(self, sorted_symbols: List, max_tokens: int, 
+                               files: List[str]) -> str:
+        
+        """ binary search to find optimal context within token budget """
+
+        if not sorted_symbols:
+            return self._build_basic_context(files[:3])
+        
+        lower_bound = 0
+        upper_bound = len(sorted_symbols)
+        best_context = ""
+        best_token = 0
+
+        while lower_bound <= upper_bound:
+            middle = (lower_bound+upper_bound) // 2
+
+            context = self._build_context_from_symbols(sorted_symbols[:middle], files)
+            token_count = len(context) // 4  # Rough estimate of tokens
+
+            if token_count <= max_tokens:
+                best_context = context
+                best_token = token_count
+                lower_bound = middle + 1
+            else:
+                upper_bound = middle - 1
+
+        return best_context or self._build_basic_context(files[:2])
+
+
+
+
+
+
+
+
+        
+
     def build_context(self, files: List[str], query: str = "") -> str:
         """ Builds context for the LLM"""
 
