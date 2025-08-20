@@ -1,7 +1,7 @@
 import os
 import ast
 from pathlib import Path
-from collections import defaultdict, counter
+from collections import defaultdict, Counter
 from typing import List, Dict, Set, Any
 
 
@@ -39,7 +39,7 @@ class ContextManager:
         repo_info["total_files"] = len(repo_info["files"])
         return repo_info
     
-    def get_file_symbols(self, file_path: str) -> Dict[str, List[str]]:
+    def get_file_symbols(self, file_path: str) -> Dict[str, List[Dict]]:
         """ Extracts functions, classes, and variables from python files """
 
         if file_path in self.tags_cache:
@@ -323,3 +323,36 @@ class ContextManager:
                 break
 
         return "".join(context_parts)
+
+
+    def _build_basic_context(self, files: List[str]) -> str:
+
+        """Fallback context builder for when optimization fails"""  
+        
+        context_parts = []  
+        repo_info = self.scan_repository()  
+        overview = f"Repository: {len(repo_info['files'])} files\n"  
+        overview += f"Languages: {', '.join(repo_info['languages'])}\n\n"  
+        context_parts.append(overview)  
+        
+        for file_path in files:  
+            symbols = self.get_file_symbols(file_path)  
+            file_section = self._format_file_symbols(file_path, symbols)  
+            context_parts.append(file_section)  
+        
+        return "".join(context_parts)
+    
+
+    def get_context_for_message(self, files: List[str], message: str) -> str:
+        """Choose appropriate context strategy based on situation"""
+
+        # If no files specified, use optimized repository overview
+        if not files:
+            return self.build_optimized_context([], message)
+        
+        # If few files, use full content  
+        if len(files) <= 3:  
+            return self.build_context(files, message)  
+        
+        # If many files, use optimized approach  
+        return self.build_optimized_context(files, message)
