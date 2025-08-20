@@ -1,15 +1,19 @@
 import os
+import ast
 from pathlib import Path
+from collections import defaultdict, counter
 from typing import List, Dict, Set, Any
 
 
 class ContextManager:
     """ Manages code context for LLM interactions"""
 
-    def __init__(self, root_path: str = "."):
+    def __init__(self, root_path: str = ".", map_tokens: int = 1024):
         self.root_path = Path(root_path)
         self.file_cache = {}
-        self.context_budget = 4000
+        self.context_budget = map_tokens
+        self.map_mul_no_files = 8
+        self.tags_cache = {}
 
     def scan_repository(self) -> Dict[str, Any]:
         """scans the repository"""
@@ -32,6 +36,96 @@ class ContextManager:
         
         repo_info["total_files"] = len(repo_info["files"])
         return repo_info
+    
+    def get_file_symbols(self, file_path: str) -> Dict[str, List[str]]:
+        """ Extracts functions, classes, and variables from python files """
+
+        if file_path in self.tags_cache:
+            return self.tags_cache[file_path]
+
+        symbols = {"functions": [], "classes": [], "variables": []}
+
+        try:
+            content = self.get_file_content(file_path)
+            tree = ast.parse(content)
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    symbols["functions"].append({
+                        "name": node.name,
+                        "line": node.lineno,
+                        "args": [arg.arg for arg in node.args.args],
+                        "signature": self._get_function_signature(node)
+                    })
+
+                elif isinstance(node, ast.ClassDef):
+                    symbols["classes"].append({
+                        "name": node.name,
+                        "line": node.lineno,
+                        "methods": [n.name for n in node.body if isinstance(n, ast.FunctionDef)]
+                    })
+
+                elif isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            symbols["variables"].append({
+                                "name": target.id,
+                                "line": node.lineno
+                            })
+
+            self.tags_cache[file_path] = symbols
+            return symbols
+        
+        except Exception as e:
+            print(f"Error parsing {file_path}: {e}")
+            return symbols
+
+    def _get_function_signature(self, node: ast.FunctionDef) -> str:
+        """ Generate function signature string """
+        args = []
+        for arg in node.args.args:
+            args.append(arg.arg)
+        return f"{node.name}({', '.join(args)})"
+    
+    def calculate_relevance_scores(self, files: List[str], mentioned_symbols: Set[str] = None) -> Dict[str, float]:
+        """ calculates relevance scores for file and symbols """
+
+        if not mentioned_symbols:
+            mentioned_symbols = set()
+
+        scores = defaultdict(float)
+        symbol_refrences = defaultdict(list)
+
+        for file_path in files:
+            content = self.get_file_content(file_path)
+            symbols = self.get_file_symbols(file_path)
+
+            for func in symbols["functions"]:
+                base_score = 1.0
+                if func["name"] in mentioned_symbols:
+                    base_score *= 10
+                if not func["name"].startswith("_"):
+                    base_score *= 2
+
+                ref_count = sum(1 for f in files if f!=file_path
+                                and func["name"] in self.get_file_content(f))
+                base_score *= (1+ref_count*0.5)
+                scores[f"{file_path}:{func['name']}"] = base_score
+
+            for cls in symbols["classes"]:  
+                base_score = 2.0
+                if cls["name"] in mentioned_symbols:  
+                    base_score *= 10  
+                if not cls["name"].startswith("_"):  
+                    base_score *= 2  
+                      
+                ref_count = sum(1 for f in files if f != file_path   
+                              and cls["name"] in self.get_file_content(f))  
+                base_score *= (1 + ref_count * 0.5)  
+                  
+                scores[f"{file_path}:{cls['name']}"] = base_score  
+          
+        return dict(scores)
 
 
     def _should_include_file(self, file_name: str) -> bool:
