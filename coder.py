@@ -55,7 +55,8 @@ class Coder:
             repo_info = self.context_manager.scan_repository()
             files_to_analyze = repo_info["files"][:10]  # Limit to first 10 files to avoid overwhelming
         
-        context = self.context_manager.build_multilang_context(files_to_analyze, message)
+        
+        context = self.context_manager.get_context_for_message(files_to_analyze, message)
         
         edit_prompt = self.edit_prompts.get_edit_prompt(  
             self.edit_format, context, message  
