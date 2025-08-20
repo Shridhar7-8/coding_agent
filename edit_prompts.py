@@ -5,18 +5,25 @@ class EditPrompts:
     code changes:
 1. Use SEARCH/REPLACE blocks to show exact changes
 2. Include enough context in SEARCH blocks for unique matching
-3. Only show the parts that need to change
-4. Be precise with whitespace and indentation
+3. CRITICAL: Copy the EXACT formatting, whitespace, and indentation from the original file
+4. Only show the parts that need to change
+5. Be precise with whitespace and indentation
 
 Format your edits like this:
 
 filename.py
+```python
 <<<<<<< SEARCH
-exact code to find
+exact code to find (with exact whitespace and formatting)
 =======
-exact replacement code
-REPLACE
->>>>>>>
+exact replacement code (with proper formatting)
+>>>>>>> REPLACE
+```
+
+IMPORTANT: The SEARCH block must match the original file's formatting exactly, including:
+- Line breaks
+- Indentation (spaces/tabs)
+- Exact spacing
 """
 
     UNIFIED_DIFF_SYSTEM = """You are an expert software developer. Make code changes using unified diff format.
