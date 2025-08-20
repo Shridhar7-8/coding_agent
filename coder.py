@@ -4,6 +4,8 @@ from typing import List
 from context import ContextManager
 from models import Model
 from typing import Set
+from editor import SmartEditor  
+from edit_prompts import EditPrompts
 
 
 
@@ -15,6 +17,9 @@ class Coder:
         self.files = files or []
         self.context_manager = ContextManager()
         self.chat_history = []
+        self.editor = SmartEditor(self.context_manager.root_path)  
+        self.edit_prompts = EditPrompts()  
+        self.edit_format = "diff"
 
     async def run_single(self, message: str):
         """Run a single interaction with the model"""
@@ -51,15 +56,15 @@ class Coder:
             files_to_analyze = repo_info["files"][:10]  # Limit to first 10 files to avoid overwhelming
         
         context = self.context_manager.build_multilang_context(files_to_analyze, message)
+        
+        edit_prompt = self.edit_prompts.get_edit_prompt(  
+            self.edit_format, context, message  
+        )
 
         messages = [
             {
                 "role": "system",
-                "content": """You are an expert coding assistant with deep 
-                              understanding of multiple programming languages.   
-                              Use the repository context to understand code structure,
-                              dependencies, and relationships across different 
-                              languages."""
+                "content": edit_prompt
             }
         ]
 
@@ -76,6 +81,15 @@ class Coder:
 
         
         response = await self.model.send_completion(messages)
+
+        if self._contains_edits(response):  
+            edit_results = self.editor.apply_edits(response, self.edit_format)  
+              
+            if edit_results["success"]:  
+                edited_files = ", ".join(edit_results["edited_files"])  
+                response += f"\n\n Successfully applied edits to: {edited_files}"  
+            else:  
+                response += f"\n\n Failed to apply some edits. Errors: {edit_results['errors']}" 
 
         self.chat_history.append({"role": "user", "content": message})
 
@@ -98,4 +112,16 @@ class Coder:
         symbols.update(re.findall(class_pattern, message))  
         
         return symbols
+    
+
+    def _contains_edits(self, response: str) -> bool:  
+        """Check if response contains edit instructions"""  
+        
+        edit_indicators = [  
+            "<<<<<<< SEARCH",  
+            "```diff",  
+            "--- ",  
+            "+++ "  
+        ]  
+        return any(indicator in response for indicator in edit_indicators)  
 
