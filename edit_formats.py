@@ -85,9 +85,24 @@ class SearchReplaceFormat(EditFormat):
         """Parse search/replace blocks from LLM response"""  
         edits = []  
           
-        # Pattern to match file path + search/replace block  
-        pattern = r'(\S+\.[\w]+)\s*```[\w]*\n<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE\n```'  
-        matches = re.findall(pattern, response, re.DOTALL)  
+        # Multiple patterns to handle different formatting
+        patterns = [
+            # Pattern with python code block 
+            r'```python\s*\n(\S+\.[\w]+)\s*\n<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\nREPLACE\n>>>>>>> ?\s*\n```',
+            # Pattern without language specifier
+            r'```\s*\n(\S+\.[\w]+)\s*\n<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\nREPLACE\n>>>>>>> ?\s*\n```',
+            # Original pattern
+            r'(\S+\.[\w]+)\s*```[\w]*\n<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE\n```',
+            # Pattern without code block wrapper
+            r'(\S+\.[\w]+)\s*\n<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> ?REPLACE',
+            # Very flexible pattern
+            r'(\S+\.[\w]+).*?<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)(?:\nREPLACE\n)?>>>>>>> ?(?:REPLACE)?',
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, response, re.DOTALL)
+            if matches:
+                break  
           
         for file_path, search_content, replace_content in matches:  
             edits.append((file_path, "search_replace", {  
@@ -107,7 +122,7 @@ class SearchReplaceFormat(EditFormat):
             search_text = edit_data["search"]  
             replace_text = edit_data["replace"]  
               
-            # Perform exact string replacement (only first occurrence)  
+            # First try exact string replacement  
             if search_text in content:  
                 new_content = content.replace(search_text, replace_text, 1)  
                   
@@ -117,7 +132,33 @@ class SearchReplaceFormat(EditFormat):
                   
                 return True  
             else:  
-                print(f"Search text not found in {file_path}")  
+                # Try with normalized whitespace if exact match fails
+                import textwrap
+                
+                # Normalize the search text (dedent and strip)
+                normalized_search = textwrap.dedent(search_text).strip()
+                
+                # Try to find a match with normalized whitespace
+                content_lines = content.split('\n')
+                search_lines = normalized_search.split('\n')
+                
+                # Look for the pattern in the file
+                for i in range(len(content_lines) - len(search_lines) + 1):
+                    file_segment = '\n'.join(content_lines[i:i+len(search_lines)])
+                    file_segment_normalized = textwrap.dedent(file_segment).strip()
+                    
+                    if file_segment_normalized == normalized_search:
+                        # Found a match! Replace it
+                        new_lines = content_lines[:i] + replace_text.split('\n') + content_lines[i+len(search_lines):]
+                        new_content = '\n'.join(new_lines)
+                        
+                        with open(file_path, 'w', encoding='utf-8') as f:  
+                            f.write(new_content)  
+                        
+                        return True
+                
+                print(f"Search text not found in {file_path}")
+                print(f"Looking for: {repr(search_text)}")
                 return False  
                   
         except Exception as e:  
